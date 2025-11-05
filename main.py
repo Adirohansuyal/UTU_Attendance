@@ -17,6 +17,8 @@ from scipy.spatial import distance as dist
 import json
 import matplotlib.pyplot as plt
 import plotly.express as px
+import hashlib
+import secrets
 
 import smtplib
 from email.mime.text import MIMEText
@@ -31,26 +33,19 @@ from reportlab.graphics.shapes import Drawing
 from reportlab.graphics.charts.barcharts import VerticalBarChart
 from reportlab.lib.units import inch
 
-
-# Initialize session state variables
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 if "chatbot_visible" not in st.session_state:
     st.session_state.chatbot_visible = False
 
-
-# Function: Generate AI Insights
-
 def generate_ai_insights():
     try:
-        # Fetch attendance data from Supabase
         response_attendance = supabase.table("Attendance").select("*").execute()
         attendance_data = response_attendance.data
         if not attendance_data:
             return "No attendance data available for analysis."
         attendance_df = pd.DataFrame(attendance_data)
         
-        # Fetch student data from Supabase
         response_students = supabase.table("students_data").select("*").execute()
         students_data = response_students.data
         if not students_data:
@@ -107,7 +102,6 @@ def generate_ai_insights():
 
 def plot_attendance_comparison(selected_students=None):
     try:
-        # Fetch attendance data from Supabase
         response_attendance = supabase.table("Attendance").select("*").execute()
         attendance_data = response_attendance.data
         if not attendance_data:
@@ -115,7 +109,6 @@ def plot_attendance_comparison(selected_students=None):
             return None
         attendance_df = pd.DataFrame(attendance_data)
         
-        # Fetch student data from Supabase
         response_students = supabase.table("students_data").select("*").execute()
         students_data = response_students.data
         if not students_data:
@@ -153,7 +146,7 @@ def plot_attendance_comparison(selected_students=None):
                      color="Percentage",
                      color_continuous_scale=px.colors.sequential.Viridis)
         
-        fig.update_layout(yaxis={'categoryorder':'total ascending'}) # Sort bars by percentage
+        fig.update_layout(yaxis={'categoryorder':'total ascending'})
         fig.update_traces(marker_line_color='rgb(8,48,107)', marker_line_width=1.5)
         
         return fig
@@ -161,9 +154,6 @@ def plot_attendance_comparison(selected_students=None):
     except Exception as e:
         st.error(f"An unexpected error occurred during plot generation: {str(e)}")
         return None
-
-
-# Enhanced UI Configuration
 
 st.set_page_config(
     page_title="FaceMark Pro - Attendance System",
@@ -293,7 +283,104 @@ os.makedirs(TRAINING_IMAGES_DIR, exist_ok=True)
 os.makedirs(qr_folder, exist_ok=True)
 
 
-# QR Code & Registration Functions
+# Dynamic QR Code System for Attendance Sessions
+def generate_session_qr(session_id, timestamp):
+    """Generate a time-based QR code for attendance session"""
+    qr_data = f"SESSION:{session_id}:TIME:{timestamp}"
+    qr = qrcode.QRCode(version=2, box_size=15, border=4)
+    qr.add_data(qr_data)
+    qr.make(fit=True)
+    
+    # Convert PIL image to bytes for Streamlit
+    img = qr.make_image(fill="black", back_color="white")
+    import io
+    img_bytes = io.BytesIO()
+    img.save(img_bytes, format='PNG')
+    img_bytes.seek(0)
+    return img_bytes
+
+def validate_session_qr(qr_data, session_id):
+    """Validate if scanned QR belongs to current session and is within time window"""
+    try:
+        parts = qr_data.split(":")
+        if len(parts) >= 4 and parts[0] == "SESSION" and parts[1] == session_id:
+            qr_timestamp = int(parts[3])
+            current_time = int(time.time())
+            # Allow 8-second window for QR validity (5s refresh + 3s buffer)
+            return abs(current_time - qr_timestamp) <= 8
+    except:
+        pass
+    return False
+
+def scan_session_qr():
+    """Scan QR code during active session"""
+    if not st.session_state.get("session_active"):
+        st.error("❌ No active attendance session. Please ask your teacher to start a session.")
+        return None
+    
+    # Get student name first
+    student_name = st.text_input("Enter your registered name:", key="student_name_input")
+    
+    if not student_name:
+        st.info("👆 Please enter your name first, then scan the QR code")
+        return None
+    
+    # Validate student exists
+    response = supabase.table("students_data").select("name").execute()
+    registered_students = [student["name"].upper() for student in response.data]
+    
+    if student_name.upper() not in registered_students:
+        st.error("❌ Student not registered in system")
+        return None
+    
+    cap = cv2.VideoCapture(0)
+    if not cap.isOpened():
+        st.error("❌ Could not access camera")
+        return None
+    
+    st.write("📱 Scanning session QR code...")
+    image_placeholder = st.empty()
+    
+    if "stop_session_qr_scanner" not in st.session_state:
+        st.session_state.stop_session_qr_scanner = False
+    
+    stop_button = st.button("Stop Scanner", key="stop_session_qr_button")
+    
+    while not st.session_state.stop_session_qr_scanner:
+        success, frame = cap.read()
+        if not success:
+            break
+        
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        image_placeholder.image(frame_rgb, channels="RGB")
+        
+        # Decode QR codes
+        decoded_objects = decode(frame)
+        for obj in decoded_objects:
+            qr_data = obj.data.decode("utf-8")
+            
+            # Validate session QR
+            if validate_session_qr(qr_data, st.session_state.session_id):
+                cap.release()
+                cv2.destroyAllWindows()
+                
+                # Automatically mark attendance
+                result, method = mark_attendance(student_name.upper(), "Session QR")
+                if result:
+                    st.success(f"✅ Attendance marked for {student_name}!")
+                    st.balloons()
+                else:
+                    st.error("❌ Attendance already marked today")
+                return "SUCCESS"
+            else:
+                st.error("❌ Invalid or expired QR code")
+        
+        if stop_button:
+            st.session_state.stop_session_qr_scanner = True
+    
+    cap.release()
+    cv2.destroyAllWindows()
+    return None
 
 def upload_to_imgur(image_path):
     CLIENT_ID = "865c3e5bfc8ef5d"  # Your Imgur client ID
@@ -531,7 +618,7 @@ def mark_attendance_and_reward(student_name, frame):
     return dateString, timeString, reward_info, "Face Recognition"
 
 # Simple attendance marking for QR code scanning (ENHANCED)
-def mark_attendance(student_name):
+def mark_attendance(student_name, method="QR Code"):
     now = datetime.now()
     dateString = now.strftime('%Y-%m-%d')
     timeString = now.strftime('%H:%M:%S')
@@ -552,7 +639,7 @@ def mark_attendance(student_name):
             "Name": student_name,
             "Date": dateString,
             "Time": timeString,
-            "Method": "QR Code"
+            "Method": method
         }
         supabase.table("Attendance").insert(new_entry_data).execute()
     except Exception as e:
@@ -560,7 +647,7 @@ def mark_attendance(student_name):
         return False, "Error"
     
     update_rewards(student_name)
-    return True, "QR Code"
+    return True, method
 
 # -------------------------
 # Function: Send Email Notification with Image and Timestamp
@@ -1107,23 +1194,82 @@ if st.sidebar.button("Register New Face", key="register_face"):
             </div>
             """, unsafe_allow_html=True)
 
-st.sidebar.markdown("### ⛶ QR Code Scanner")
-if st.sidebar.button("Scan QR for Attendance", key="scan_qr"):
+st.sidebar.markdown("### 🎯 Attendance Session")
+
+# Initialize session state
+if "session_active" not in st.session_state:
+    st.session_state.session_active = False
+if "session_id" not in st.session_state:
+    st.session_state.session_id = None
+
+# Session control buttons in sidebar
+if not st.session_state.session_active:
+    if st.sidebar.button("🚀 Start Session", key="start_session"):
+        st.session_state.session_active = True
+        st.session_state.session_id = secrets.token_hex(8)
+        st.rerun()
+else:
+    if st.sidebar.button("🛑 End Session", key="end_session"):
+        st.session_state.session_active = False
+        st.session_state.session_id = None
+        st.rerun()
+    
+    # Show session status in sidebar
+    st.sidebar.success("✅ Session Active")
+    st.sidebar.info(f"ID: {st.session_state.session_id[:8]}...")
+
+# Display QR in main area if session is active
+if st.session_state.session_active:
     st.markdown("""
     <div class="info-card">
-        <h4>QR Code Attendance Scanner</h4>
+        <h3>📺 Active Attendance Session</h3>
+        <p>QR Code for classroom projection</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Show session ID for students
+    st.info(f"**Session ID for students:** `{st.session_state.session_id}`")
+    
+    # Generate and display QR
+    current_timestamp = int(time.time())
+    qr_img = generate_session_qr(st.session_state.session_id, current_timestamp)
+    
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.image(qr_img, width=400, caption="Session QR Code - Refreshes every 5 seconds")
+    
+    # Auto-refresh every 5 seconds
+    time.sleep(5)
+    st.rerun()
+
+st.sidebar.markdown("### 📱 Session QR Scanner")
+if st.sidebar.button("Scan Session QR", key="scan_session_qr"):
+    st.markdown("""
+    <div class="info-card">
+        <h4>📱 Session QR Scanner</h4>
+        <p>Enter your name and scan the QR code for automatic attendance</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    scan_session_qr()
+
+st.sidebar.markdown("### ⛶ Individual QR Scanner")
+if st.sidebar.button("Scan Individual QR", key="scan_individual_qr"):
+    st.markdown("""
+    <div class="info-card">
+        <h4>Individual QR Code Scanner</h4>
         <p>Hold your QR code in front of the camera</p>
     </div>
     """, unsafe_allow_html=True)
     
     student_name = scan_qr_code()
     if student_name:
-        result, method = mark_attendance(student_name)
+        result, method = mark_attendance(student_name, "Individual QR")
         if result:
             st.markdown(f"""
             <div class="success-card">
                 <h4>✅ Attendance Marked Successfully!</h4>
-                <p><strong>{student_name}</strong> marked via QR Code</p>
+                <p><strong>{student_name}</strong> marked via Individual QR</p>
             </div>
             """, unsafe_allow_html=True)
             st.balloons()
