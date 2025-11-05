@@ -121,7 +121,8 @@ def plot_attendance_comparison(selected_students=None):
         plot_data = []
         for index, student in students_df.iterrows():
             student_name = student['Name']
-            if selected_students and student_name not in selected_students:
+            # If students are selected, only include those; if none selected, include all
+            if selected_students and len(selected_students) > 0 and student_name not in selected_students:
                 continue
 
             student_attendance_records = attendance_df[attendance_df['Name'].str.upper() == student_name.upper()]
@@ -253,7 +254,7 @@ st.markdown("""
 
 # AI Insights Configuration
 
-GROQ_API_KEY = "YOUR_API_KEY"
+GROQ_API_KEY = "YAK"
 GROQ_MODEL = "llama-3.3-70b-versatile"
 
 
@@ -653,14 +654,54 @@ def mark_attendance(student_name, method="QR Code"):
 # Function: Send Email Notification with Image and Timestamp
 # -------------------------
 def send_email(student_name, captured_img, timestamp, badge):
-    subject = "Attendance Marked Notification"
-    body = f"Attendance for {student_name} has been marked at {timestamp}.\nCurrent Badge: {badge}"
+    subject = "✅ Attendance Marked - FaceMark Pro"
     
-    msg = MIMEMultipart()
-    msg["From"] = "GateAttend <{}>".format(SENDER_EMAIL)
+    # Modern HTML email template
+    html_body = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <style>
+            body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; background-color: #f4f4f4; }}
+            .container {{ max-width: 600px; margin: 0 auto; background-color: white; }}
+            .header {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; }}
+            .content {{ padding: 30px; }}
+            .badge {{ display: inline-block; padding: 8px 16px; border-radius: 20px; font-weight: bold; margin: 10px 0; }}
+            .badge-gold {{ background-color: #FFD700; color: #333; }}
+            .badge-silver {{ background-color: #C0C0C0; color: #333; }}
+            .badge-bronze {{ background-color: #CD7F32; color: white; }}
+            .info-box {{ background-color: #f8f9fa; border-left: 4px solid #667eea; padding: 20px; margin: 20px 0; }}
+            .footer {{ background-color: #333; color: white; padding: 20px; text-align: center; font-size: 12px; }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <h1>🎓 FaceMark Pro</h1>
+                <h2>Attendance Confirmation</h2>
+            </div>
+            <div class="content">
+                <h3>✅ Attendance Successfully Marked</h3>
+                <div class="info-box">
+                    <p><strong>Student:</strong> {student_name}</p>
+                    <p><strong>Timestamp:</strong> {timestamp}</p>
+                    <p><strong>Current Badge:</strong> <span class="badge badge-{badge.lower()}">{badge}</span></p>
+                </div>
+                <p>This is an automated notification from the FaceMark Pro attendance system.</p>
+            </div>
+            <div class="footer">
+                <p>© 2024 FaceMark Pro - Advanced Attendance Management System</p>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+    
+    msg = MIMEMultipart("alternative")
+    msg["From"] = "FaceMark Pro <{}>".format(SENDER_EMAIL)
     msg["To"] = ADMIN_EMAIL
     msg["Subject"] = subject
-    msg.attach(MIMEText(body, "plain"))
+    msg.attach(MIMEText(html_body, "html"))
     
     retval, buffer = cv2.imencode('.jpg', captured_img)
     if retval:
@@ -676,7 +717,7 @@ def send_email(student_name, captured_img, timestamp, badge):
         server.login(SENDER_EMAIL, SENDER_PASSWORD)
         server.sendmail(SENDER_EMAIL, ADMIN_EMAIL, msg.as_string())
         server.quit()
-        st.success(f"✅ Email sent to Admin@BIAS for {student_name} at {timestamp}!")
+        st.success(f"✅ Email sent to Admin for {student_name} at {timestamp}!")
     except Exception as e:
         st.error(f"❌ Error sending email: {e}")
 
@@ -684,27 +725,77 @@ def send_email(student_name, captured_img, timestamp, badge):
 # Function: Send Parent Notifications
 # -------------------------
 def send_parent_notification(student_name, parent_email, notification_type, attendance_percentage=None):
-    subject = f"Low Attendance Alert - {student_name}"
-    body = f"""
-Dear Parent/Guardian,
-
-We would like to inform you that {student_name}'s attendance has dropped to {attendance_percentage}%, 
-which is below the required 75% threshold.
-
-Current attendance: {attendance_percentage}%
-Required minimum: 75%
-
-We encourage you to discuss the importance of regular attendance with your child.
-
-Best regards,
-Birla Institute of Applied Sciences
+    subject = f"⚠️ Attendance Alert - {student_name}"
+    
+    # Modern HTML email template for parents
+    html_body = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <style>
+            body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; background-color: #f4f4f4; }}
+            .container {{ max-width: 600px; margin: 0 auto; background-color: white; }}
+            .header {{ background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%); color: white; padding: 30px; text-align: center; }}
+            .content {{ padding: 30px; }}
+            .alert-box {{ background-color: #fff3cd; border: 1px solid #ffeaa7; border-radius: 8px; padding: 20px; margin: 20px 0; }}
+            .stats {{ display: flex; justify-content: space-between; margin: 20px 0; }}
+            .stat {{ text-align: center; padding: 15px; background-color: #f8f9fa; border-radius: 8px; flex: 1; margin: 0 5px; }}
+            .current {{ color: #e74c3c; font-size: 24px; font-weight: bold; }}
+            .required {{ color: #27ae60; font-size: 24px; font-weight: bold; }}
+            .footer {{ background-color: #333; color: white; padding: 20px; text-align: center; font-size: 12px; }}
+            .action-needed {{ background-color: #e74c3c; color: white; padding: 15px; border-radius: 8px; text-align: center; margin: 20px 0; }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <h1>🎓 FaceMark Pro</h1>
+                <h2>Attendance Alert</h2>
+            </div>
+            <div class="content">
+                <div class="alert-box">
+                    <h3>⚠️ Low Attendance Notice</h3>
+                    <p>Dear Parent/Guardian,</p>
+                    <p>We would like to inform you that <strong>{student_name}'s</strong> attendance has dropped below the required threshold.</p>
+                </div>
+                
+                <div class="stats">
+                    <div class="stat">
+                        <div class="current">{attendance_percentage}%</div>
+                        <div>Current Attendance</div>
+                    </div>
+                    <div class="stat">
+                        <div class="required">75%</div>
+                        <div>Required Minimum</div>
+                    </div>
+                </div>
+                
+                <div class="action-needed">
+                    <strong>Action Required:</strong> Please discuss the importance of regular attendance with your child.
+                </div>
+                
+                <p>Regular attendance is crucial for academic success. We encourage you to work with us to improve your child's attendance record.</p>
+                
+                <p>If there are any concerns or circumstances affecting attendance, please contact us immediately.</p>
+                
+                <p>Best regards,<br>
+                <strong>Academic Administration</strong><br>
+                FaceMark Pro System</p>
+            </div>
+            <div class="footer">
+                <p>© 2024 FaceMark Pro - This is an automated notification</p>
+                <p>Please do not reply to this email</p>
+            </div>
+        </div>
+    </body>
+    </html>
     """
     
-    msg = MIMEMultipart()
-    msg["From"] = f"Attendance Alert <{SENDER_EMAIL}>"
+    msg = MIMEMultipart("alternative")
+    msg["From"] = f"FaceMark Pro Alert <{SENDER_EMAIL}>"
     msg["To"] = parent_email
     msg["Subject"] = subject
-    msg.attach(MIMEText(body, "plain"))
+    msg.attach(MIMEText(html_body, "html"))
     
     try:
         server = smtplib.SMTP("smtp.gmail.com", 587)
@@ -712,7 +803,7 @@ Birla Institute of Applied Sciences
         server.login(SENDER_EMAIL, SENDER_PASSWORD)
         server.sendmail(SENDER_EMAIL, parent_email, msg.as_string())
         server.quit()
-        st.success(f"✅ Email sent to {parent_email} for {student_name} ({attendance_percentage}% attendance)!")
+        st.success(f"✅ Alert email sent to {parent_email} for {student_name} ({attendance_percentage}% attendance)!")
     except Exception as e:
         st.error(f"❌ Error sending email to {parent_email}: {e}")
 
@@ -766,24 +857,76 @@ def check_and_notify_low_attendance():
             st.write(f"• {defaulter['Name']} - {defaulter['Percentage']}% "
                      f"(Parent: {defaulter['Parent_Name']} - {defaulter['Parent_Email']})")
             try:
-                subject = f"Low Attendance Alert - {defaulter['Name']}"
-                body = f'''Dear Parent/Guardian,
-
-We would like to inform you that {defaulter['Name']}'s attendance has dropped to {defaulter['Percentage']}%, which is below the required 75% threshold.
-
-Current attendance: {defaulter['Percentage']}% 
-Required minimum: 75%
-
-We encourage you to discuss the importance of regular attendance with your child.
-
-Best regards,
-Birla Institute of Applied Sciences'''
+                subject = f"⚠️ Low Attendance Alert - {defaulter['Name']}"
                 
-                msg = MIMEMultipart()
-                msg["From"] = f"Attendance Alert <{SENDER_EMAIL}>"
+                # Modern HTML email template
+                html_body = f"""
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <style>
+                        body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; background-color: #f4f4f4; }}
+                        .container {{ max-width: 600px; margin: 0 auto; background-color: white; }}
+                        .header {{ background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%); color: white; padding: 30px; text-align: center; }}
+                        .content {{ padding: 30px; }}
+                        .alert-box {{ background-color: #fff3cd; border: 1px solid #ffeaa7; border-radius: 8px; padding: 20px; margin: 20px 0; }}
+                        .stats {{ display: flex; justify-content: space-between; margin: 20px 0; }}
+                        .stat {{ text-align: center; padding: 15px; background-color: #f8f9fa; border-radius: 8px; flex: 1; margin: 0 5px; }}
+                        .current {{ color: #e74c3c; font-size: 24px; font-weight: bold; }}
+                        .required {{ color: #27ae60; font-size: 24px; font-weight: bold; }}
+                        .footer {{ background-color: #333; color: white; padding: 20px; text-align: center; font-size: 12px; }}
+                        .urgent {{ background-color: #e74c3c; color: white; padding: 15px; border-radius: 8px; text-align: center; margin: 20px 0; }}
+                    </style>
+                </head>
+                <body>
+                    <div class="container">
+                        <div class="header">
+                            <h1>🎓 FaceMark Pro</h1>
+                            <h2>Urgent: Low Attendance Alert</h2>
+                        </div>
+                        <div class="content">
+                            <div class="alert-box">
+                                <h3>⚠️ Attendance Below Required Threshold</h3>
+                                <p>Dear Parent/Guardian,</p>
+                                <p>We need to inform you that <strong>{defaulter['Name']}'s</strong> attendance has fallen below the required minimum.</p>
+                            </div>
+                            
+                            <div class="stats">
+                                <div class="stat">
+                                    <div class="current">{defaulter['Percentage']}%</div>
+                                    <div>Current Attendance</div>
+                                </div>
+                                <div class="stat">
+                                    <div class="required">75%</div>
+                                    <div>Required Minimum</div>
+                                </div>
+                            </div>
+                            
+                            <div class="urgent">
+                                <strong>Immediate Action Required:</strong> Please discuss regular attendance with your child.
+                            </div>
+                            
+                            <p>Regular attendance is essential for academic success. We strongly encourage you to work with us to improve your child's attendance record immediately.</p>
+                            
+                            <p>Please contact the administration if there are any circumstances affecting attendance.</p>
+                            
+                            <p>Best regards,<br>
+                            <strong>Academic Administration</strong><br>
+                            FaceMark Pro System</p>
+                        </div>
+                        <div class="footer">
+                            <p>© 2024 FaceMark Pro - Automated Low Attendance Alert</p>
+                        </div>
+                    </div>
+                </body>
+                </html>
+                """
+                
+                msg = MIMEMultipart("alternative")
+                msg["From"] = f"FaceMark Pro Alert <{SENDER_EMAIL}>"
                 msg["To"] = defaulter['Parent_Email']
                 msg["Subject"] = subject
-                msg.attach(MIMEText(body, "plain"))
+                msg.attach(MIMEText(html_body, "html"))
 
                 # Find and attach student image
                 image_path = None
