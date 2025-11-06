@@ -197,114 +197,16 @@ CREATE TABLE rewards (
 2. **Generate App Password** in Google Account settings
 3. **Update credentials** in the configuration section
 
-### Blockchain Setup (Optional)
 
-```bash
-# Install blockchain dependencies
-pip install -r blockchain_requirements.txt
 
-# Start local blockchain (if using Ganache)
-ganache-cli --deterministic --accounts 10 --host 0.0.0.0
-```
 
-## 📱 API Endpoints
 
-### Student Registration
-```python
-# Register new student
-POST /register_student
-{
-    "student_id": "STU001",
-    "name": "John Doe",
-    "age": 20,
-    "grade": "CS-3",
-    "parent_name": "Jane Doe",
-    "parent_contact": "+1234567890",
-    "parent_email": "parent@email.com"
-}
-```
 
-### Attendance Marking
-```python
-# Mark attendance
-POST /mark_attendance
-{
-    "student_name": "John Doe",
-    "method": "Face Recognition",
-    "timestamp": "2024-11-06T10:30:00"
-}
-```
 
-### Analytics
-```python
-# Get attendance analytics
-GET /analytics/{student_name}
-GET /analytics/class/{date}
-GET /analytics/summary
-```
 
-## 🎨 Customization
 
-### UI Themes
-Modify the CSS in `main.py` to customize colors and styling:
 
-```python
-st.markdown("""
-<style>
-    .main-header {
-        background: linear-gradient(90deg, #your-color1, #your-color2);
-        /* Your custom styles */
-    }
-</style>
-""", unsafe_allow_html=True)
-```
 
-### Recognition Settings
-Adjust face recognition parameters:
-
-```python
-TOLERANCE = 0.6          # Face matching threshold (0.0-1.0)
-MODEL = "hog"           # Use 'hog' for CPU, 'cnn' for GPU
-EYE_AR_THRESH = 0.25    # Blink detection sensitivity
-```
-
-## 🔍 Troubleshooting
-
-### Common Issues
-
-**Camera Access Denied**
-```bash
-# macOS: Grant camera permissions in System Preferences
-# Windows: Check Windows Privacy Settings
-# Linux: Ensure user is in video group
-sudo usermod -a -G video $USER
-```
-
-**Face Recognition Not Working**
-```bash
-# Install dlib dependencies
-# macOS:
-brew install cmake
-# Ubuntu:
-sudo apt-get install cmake libopenblas-dev liblapack-dev
-```
-
-**Supabase Connection Error**
-- Verify API keys and URL
-- Check internet connection
-- Ensure Supabase project is active
-
-### Performance Optimization
-
-**For Better Face Recognition:**
-- Use good lighting conditions
-- Ensure camera resolution ≥ 720p
-- Maintain 2-3 feet distance from camera
-
-**For Faster Processing:**
-- Use `MODEL = "hog"` for CPU
-- Reduce frame processing rate
-- Optimize image resolution
 
 ## 🤝 Contributing
 
@@ -316,12 +218,7 @@ We welcome contributions! Please follow these steps:
 4. **Push to branch** (`git push origin feature/AmazingFeature`)
 5. **Open Pull Request**
 
-### Development Guidelines
 
-- Follow PEP 8 style guide
-- Add docstrings to functions
-- Include unit tests for new features
-- Update documentation
 
 ## 📄 License
 
@@ -341,16 +238,17 @@ For support and questions:
 
 - **Email**: adityasuyal0001@gmail.com
 - **Institution**: Birla Institute of Applied Sciences
-- **Issues**: [GitHub Issues](https://github.com/yourusername/UTU_Attendance-main/issues)
+
 
 ---
 
 <div align="center">
 
-**Made with ❤️ for educational institutions**
 
-*Empowering education through technology*
+
+
 
 </div>
+
 
 
