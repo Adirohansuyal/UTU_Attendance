@@ -21,7 +21,7 @@ FaceMark Pro is a comprehensive attendance management system that combines facia
 
 ### 🔐 Security & Authentication
 - **Anti-Spoof Detection**: Real-time liveness detection using blink analysis
-- **Blockchain Integration**: Attendance records are stored on a blockchain (e.g., Ganache) to ensure tamper-proof and immutable data storage
+- **Blockchain Integration**: Attendance records are stored on a blockchain (Ganache) to ensure tamper-proof and immutable data storage
 - **Face Recognition**: Advanced facial recognition with 95%+ accuracy
 - **QR Code Verification**: Dynamic session-based QR codes
 
@@ -352,4 +352,5 @@ For support and questions:
 *Empowering education through technology*
 
 </div>
+
 
