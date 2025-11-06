@@ -27,6 +27,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.image import MIMEImage
 
 from supabase_client import supabase
+from blockchain_attendance import BlockchainAttendance
 from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
 from reportlab.lib.styles import getSampleStyleSheet
@@ -342,7 +343,7 @@ st.markdown("""
 
 # AI Insights Configuration
 
-GROQ_API_KEY = "My_api_key"
+GROQ_API_KEY = "My-API-Key"
 GROQ_MODEL = "llama-3.3-70b-versatile"
 
 
@@ -359,6 +360,15 @@ TRAINING_IMAGES_DIR = "Training_Images"             # Directory for training ima
 TOLERANCE = 0.6                                     # Face recognition matching threshold
 MODEL = "hog"                                       # Use 'hog' for CPU and 'cnn' for GPU
 qr_folder = "QR_Codes"                              # Folder for QR codes
+
+# Initialize blockchain
+try:
+    blockchain = BlockchainAttendance()
+    BLOCKCHAIN_ENABLED = True
+    print("✅ Blockchain initialized successfully")
+except Exception as e:
+    BLOCKCHAIN_ENABLED = False
+    print(f"⚠️ Blockchain disabled: {e}")
 
 # Liveness Detection Constants
 EYE_AR_THRESH = 0.25
@@ -713,6 +723,15 @@ def mark_attendance_and_reward(student_name, frame):
                 "Method": "Face Recognition"
             }
             supabase.table("Attendance").insert(new_entry_data).execute()
+            
+            # Store on blockchain if enabled
+            if BLOCKCHAIN_ENABLED:
+                try:
+                    blockchain_record = blockchain.store_attendance(student_name, True, 0.95)
+                    st.success(f"🔗 Blockchain: {blockchain_record['blockchain_hash'][:16]}...")
+                except Exception as e:
+                    st.warning(f"⚠️ Blockchain storage failed: {e}")
+                    
         except Exception as e:
             st.error(f"Error inserting attendance: {e}")
             is_online = False
@@ -767,7 +786,44 @@ def mark_attendance(student_name, method="QR Code"):
                 "Method": method
             }
             supabase.table("Attendance").insert(new_entry_data).execute()
-            update_rewards(student_name)
+            
+            # Store on blockchain if enabled
+            if BLOCKCHAIN_ENABLED:
+                try:
+                    blockchain_record = blockchain.store_attendance(student_name, True)
+                    st.success(f"🔗 Blockchain: {blockchain_record['blockchain_hash'][:16]}...")
+                except Exception as e:
+                    st.warning(f"⚠️ Blockchain storage failed: {e}")
+            
+            # Update rewards
+            reward_response = supabase.table("rewards").select("*").eq("Name", student_name).execute()
+            
+            if reward_response.data:
+                # Update existing
+                current_count = reward_response.data[0]["AttendanceCount"]
+                new_count = current_count + 1
+                
+                if new_count >= 10:
+                    badge = "Gold"
+                elif new_count >= 5:
+                    badge = "Silver"
+                elif new_count >= 4:
+                    badge = "Bronze"
+                else:
+                    badge = "No Badge"
+                
+                supabase.table("rewards").update({
+                    "AttendanceCount": new_count,
+                    "Badge": badge
+                }).eq("Name", student_name).execute()
+            else:
+                # Create new
+                supabase.table("rewards").insert({
+                    "Name": student_name,
+                    "AttendanceCount": 1,
+                    "Badge": "No Badge"
+                }).execute()
+                
         except Exception as e:
             st.error(f"Error inserting attendance: {e}")
             is_online = False
@@ -1406,10 +1462,12 @@ with col3:
 with col4:
     response_rewards = supabase.table("rewards").select("*").eq("Badge", "Gold").execute()
     gold_badges = len(response_rewards.data) if response_rewards.data else 0
+    blockchain_status = "🔗 Active" if BLOCKCHAIN_ENABLED else "⚠️ Offline"
     st.markdown(f"""
     <div class="metric-card">
         <h3>🏆 {gold_badges}</h3>
-        <p><b>Gold Badgers(Anti-Spoof Active)</b></p>
+        <p><b>Gold Badgers</b></p>
+        <p><small>{blockchain_status}</small></p>
     </div>
     """, unsafe_allow_html=True)
 
