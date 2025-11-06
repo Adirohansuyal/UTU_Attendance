@@ -19,6 +19,7 @@ import matplotlib.pyplot as plt
 import plotly.express as px
 import hashlib
 import secrets
+import socket
 
 import smtplib
 from email.mime.text import MIMEText
@@ -37,6 +38,93 @@ if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 if "chatbot_visible" not in st.session_state:
     st.session_state.chatbot_visible = False
+
+# Offline Storage Configuration
+OFFLINE_FILE = "offline_attendance.json"
+
+def check_internet():
+    """Check if internet connection is available"""
+    try:
+        socket.create_connection(("8.8.8.8", 53), timeout=3)
+        return True
+    except OSError:
+        return False
+
+def save_offline_attendance(name, date, time_str, method):
+    """Save attendance to local JSON file"""
+    record = {
+        "Name": name,
+        "Date": date,
+        "Time": time_str,
+        "Method": method,
+        "timestamp": datetime.now().isoformat()
+    }
+    
+    try:
+        if os.path.exists(OFFLINE_FILE):
+            with open(OFFLINE_FILE, 'r') as f:
+                data = json.load(f)
+        else:
+            data = []
+        
+        # Check for duplicates
+        exists = any(r["Name"] == name and r["Date"] == date for r in data)
+        if not exists:
+            data.append(record)
+            with open(OFFLINE_FILE, 'w') as f:
+                json.dump(data, f, indent=2)
+            return True
+    except Exception as e:
+        st.error(f"Error saving offline: {e}")
+    return False
+
+def sync_offline_data():
+    """Sync offline data to Supabase"""
+    if not os.path.exists(OFFLINE_FILE):
+        return 0
+    
+    try:
+        with open(OFFLINE_FILE, 'r') as f:
+            offline_data = json.load(f)
+        
+        synced_count = 0
+        for record in offline_data[:]:
+            try:
+                # Check if already exists online
+                response = supabase.table("Attendance").select("*").eq("Name", record["Name"]).eq("Date", record["Date"]).execute()
+                if not response.data:
+                    # Insert to Supabase
+                    supabase.table("Attendance").insert({
+                        "Name": record["Name"],
+                        "Date": record["Date"],
+                        "Time": record["Time"],
+                        "Method": record["Method"]
+                    }).execute()
+                    synced_count += 1
+                
+                # Remove from offline file
+                offline_data.remove(record)
+            except Exception as e:
+                st.error(f"Sync error for {record['Name']}: {e}")
+        
+        # Update offline file
+        with open(OFFLINE_FILE, 'w') as f:
+            json.dump(offline_data, f, indent=2)
+        
+        return synced_count
+    except Exception as e:
+        st.error(f"Sync error: {e}")
+        return 0
+
+def get_offline_count():
+    """Get count of offline records"""
+    if not os.path.exists(OFFLINE_FILE):
+        return 0
+    try:
+        with open(OFFLINE_FILE, 'r') as f:
+            return len(json.load(f))
+    except:
+        return 0
 
 def generate_ai_insights():
     try:
@@ -254,7 +342,7 @@ st.markdown("""
 
 # AI Insights Configuration
 
-GROQ_API_KEY = "YAK"
+GROQ_API_KEY = "My_api_key"
 GROQ_MODEL = "llama-3.3-70b-versatile"
 
 
@@ -591,31 +679,52 @@ def mark_attendance_and_reward(student_name, frame):
     dateString = now.strftime('%Y-%m-%d')
     timeString = now.strftime('%H:%M:%S')
     
-    # Check if attendance for this student is already marked today in Supabase
-    try:
-        response = supabase.table("Attendance").select("*").eq("Name", student_name).eq("Date", dateString).execute()
-        if response.data:
-            existing_method = response.data[0].get("Method", "Unknown")
-            return None, None, None, existing_method
-    except Exception as e:
-        print(f"Error checking existing attendance in Supabase: {e}")
-        return None, None, None, "Error"
-
-    # If not marked, insert new attendance record into Supabase
-    try:
-        new_entry_data = {
-            "Name": student_name,
-            "Date": dateString,
-            "Time": timeString,
-            "Method": "Face Recognition"
-        }
-        supabase.table("Attendance").insert(new_entry_data).execute()
-    except Exception as e:
-        print(f"Error inserting new attendance record into Supabase: {e}")
-        return None, None, None, "Error"
+    is_online = check_internet()
     
-    reward_info = update_rewards(student_name)
-    send_email(student_name, frame, f"{dateString} {timeString}", reward_info['Badge'])
+    if is_online:
+        # Online mode - check Supabase first
+        try:
+            response = supabase.table("Attendance").select("*").eq("Name", student_name).eq("Date", dateString).execute()
+            if response.data:
+                existing_method = response.data[0].get("Method", "Unknown")
+                return None, None, None, existing_method
+        except Exception as e:
+            st.error(f"Error checking attendance: {e}")
+            is_online = False
+    
+    if not is_online:
+        # Offline mode - check local file
+        if os.path.exists(OFFLINE_FILE):
+            try:
+                with open(OFFLINE_FILE, 'r') as f:
+                    offline_data = json.load(f)
+                if any(r["Name"] == student_name and r["Date"] == dateString for r in offline_data):
+                    return None, None, None, "Offline Record"
+            except:
+                pass
+
+    # Mark attendance
+    if is_online:
+        try:
+            new_entry_data = {
+                "Name": student_name,
+                "Date": dateString,
+                "Time": timeString,
+                "Method": "Face Recognition"
+            }
+            supabase.table("Attendance").insert(new_entry_data).execute()
+        except Exception as e:
+            st.error(f"Error inserting attendance: {e}")
+            is_online = False
+    
+    if not is_online:
+        # Save offline
+        if save_offline_attendance(student_name, dateString, timeString, "Face Recognition"):
+            st.info("📱 Saved offline - will sync when online")
+    
+    reward_info = update_rewards(student_name) if is_online else {"Name": student_name, "AttendanceCount": 0, "Badge": "Offline"}
+    if is_online:
+        send_email(student_name, frame, f"{dateString} {timeString}", reward_info['Badge'])
     return dateString, timeString, reward_info, "Face Recognition"
 
 # Simple attendance marking for QR code scanning (ENHANCED)
@@ -624,30 +733,52 @@ def mark_attendance(student_name, method="QR Code"):
     dateString = now.strftime('%Y-%m-%d')
     timeString = now.strftime('%H:%M:%S')
     
-    # Check if attendance for this student is already marked today in Supabase
-    try:
-        response = supabase.table("Attendance").select("*").eq("Name", student_name).eq("Date", dateString).execute()
-        if response.data:
-            existing_method = response.data[0].get("Method", "Unknown")
-            return False, existing_method
-    except Exception as e:
-        print(f"Error checking existing attendance in Supabase: {e}")
-        return False, "Error"
+    is_online = check_internet()
+    
+    if is_online:
+        # Online mode - check Supabase
+        try:
+            response = supabase.table("Attendance").select("*").eq("Name", student_name).eq("Date", dateString).execute()
+            if response.data:
+                existing_method = response.data[0].get("Method", "Unknown")
+                return False, existing_method
+        except Exception as e:
+            st.error(f"Error checking attendance: {e}")
+            is_online = False
+    
+    if not is_online:
+        # Offline mode - check local file
+        if os.path.exists(OFFLINE_FILE):
+            try:
+                with open(OFFLINE_FILE, 'r') as f:
+                    offline_data = json.load(f)
+                if any(r["Name"] == student_name and r["Date"] == dateString for r in offline_data):
+                    return False, "Offline Record"
+            except:
+                pass
 
-    # If not marked, insert new attendance record into Supabase
-    try:
-        new_entry_data = {
-            "Name": student_name,
-            "Date": dateString,
-            "Time": timeString,
-            "Method": method
-        }
-        supabase.table("Attendance").insert(new_entry_data).execute()
-    except Exception as e:
-        print(f"Error inserting new attendance record into Supabase: {e}")
+    # Mark attendance
+    if is_online:
+        try:
+            new_entry_data = {
+                "Name": student_name,
+                "Date": dateString,
+                "Time": timeString,
+                "Method": method
+            }
+            supabase.table("Attendance").insert(new_entry_data).execute()
+            update_rewards(student_name)
+        except Exception as e:
+            st.error(f"Error inserting attendance: {e}")
+            is_online = False
+    
+    if not is_online:
+        # Save offline
+        if save_offline_attendance(student_name, dateString, timeString, method):
+            st.info("📱 Saved offline - will sync when online")
+            return True, method
         return False, "Error"
     
-    update_rewards(student_name)
     return True, method
 
 # -------------------------
@@ -1187,6 +1318,33 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
+# Connection Status & Auto-Sync
+is_online = check_internet()
+offline_count = get_offline_count()
+
+col1, col2, col3 = st.columns([2, 1, 1])
+with col1:
+    if is_online:
+        st.success("🟢 Online Mode")
+        if offline_count > 0:
+            synced = sync_offline_data()
+            if synced > 0:
+                st.success(f"✅ Auto-synced {synced} offline records")
+    else:
+        st.error("🔴 Offline Mode")
+
+with col2:
+    if offline_count > 0:
+        st.warning(f"📱 {offline_count} offline records")
+
+with col3:
+    if st.button("🔄 Manual Sync", disabled=not is_online):
+        if offline_count > 0:
+            synced = sync_offline_data()
+            st.success(f"✅ Synced {synced} records")
+        else:
+            st.info("No offline data to sync")
+
 # Dashboard Metrics
 col1, col2, col3, col4 = st.columns(4)
 
@@ -1384,47 +1542,6 @@ if st.session_state.session_active:
     # Auto-refresh every 5 seconds
     time.sleep(5)
     st.rerun()
-
-st.sidebar.markdown("### 📱 Session QR Scanner")
-if st.sidebar.button("Scan Session QR", key="scan_session_qr"):
-    st.markdown("""
-    <div class="info-card">
-        <h4>📱 Session QR Scanner</h4>
-        <p>Enter your name and scan the QR code for automatic attendance</p>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    scan_session_qr()
-
-st.sidebar.markdown("### ⛶ Individual QR Scanner")
-if st.sidebar.button("Scan Individual QR", key="scan_individual_qr"):
-    st.markdown("""
-    <div class="info-card">
-        <h4>Individual QR Code Scanner</h4>
-        <p>Hold your QR code in front of the camera</p>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    student_name = scan_qr_code()
-    if student_name:
-        result, method = mark_attendance(student_name, "Individual QR")
-        if result:
-            st.markdown(f"""
-            <div class="success-card">
-                <h4>✅ Attendance Marked Successfully!</h4>
-                <p><strong>{student_name}</strong> marked via Individual QR</p>
-            </div>
-            """, unsafe_allow_html=True)
-            st.balloons()
-        else:
-            st.markdown(f"""
-            <div class="warning-card">
-                <h4>⚠️ Already Marked</h4>
-                <p><strong>{student_name}</strong> already marked with {method}</p>
-            </div>
-            """, unsafe_allow_html=True)
-    else:
-        st.error("❌ No valid QR code detected.")
 
 st.sidebar.markdown("### 📊 View Data")
 if st.sidebar.button(" Show Attendance Records", key="show_attendance"):
@@ -1704,7 +1821,7 @@ if st.session_state.get("webcam_active"):
                     st.session_state.liveness_verified_until = 0
                     st.session_state.blink_counter = 0
                     liveness_placeholder.markdown("⚠️ **Unstable face detected. Resetting liveness.**")
-                    last_face_location = current_face_location # Update for next frame
+                    st.session_state.last_face_location = current_face_location # Update for next frame
                     FRAME_WINDOW.image(frame, channels="BGR", use_container_width=True)
                     time.sleep(0.03)
                     continue # Skip further processing for this frame
