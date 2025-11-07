@@ -343,7 +343,7 @@ st.markdown("""
 
 # AI Insights Configuration
 
-GROQ_API_KEY = "yapk"
+GROQ_API_KEY = "yak"
 GROQ_MODEL = "llama-3.3-70b-versatile"
 
 
@@ -740,6 +740,10 @@ def mark_attendance_and_reward(student_name, frame):
         # Save offline
         if save_offline_attendance(student_name, dateString, timeString, "Face Recognition"):
             st.info("📱 Saved offline - will sync when online")
+            reward_info = {"Name": student_name, "AttendanceCount": 0, "Badge": "Offline"}
+            return dateString, timeString, reward_info, "Face Recognition"
+        else:
+            return None, None, None, "Error"
     
     reward_info = update_rewards(student_name) if is_online else {"Name": student_name, "AttendanceCount": 0, "Badge": "Offline"}
     if is_online:
@@ -1406,17 +1410,14 @@ col1, col2, col3, col4 = st.columns(4)
 
 with col1:
     unique_class_days = 0
-    if supabase is None:
-        st.error("Supabase client is not initialized for Total Days metric.")
-    else:
+    if is_online and supabase is not None:
         try:
-            # Fetch attendance data to calculate unique class days
             response_attendance = supabase.table("Attendance").select("Date").execute()
             if response_attendance.data:
                 attendance_df = pd.DataFrame(response_attendance.data)
                 unique_class_days = attendance_df['Date'].nunique()
-        except Exception as e:
-            st.error(f"Supabase Error (Total Days metric): {e}")
+        except:
+            unique_class_days = 0
     st.markdown(f"""
     <div class="metric-card">
         <h3>☀️  {unique_class_days}</h3>
@@ -1426,14 +1427,12 @@ with col1:
 
 with col2:
     today_records = 0
-    if supabase is None:
-        st.error("Supabase client is not initialized for Today's Attendance metric.")
-    else:
+    if is_online and supabase is not None:
         try:
             response_attendance = supabase.table("Attendance").select("*").eq("Date", datetime.now().strftime('%Y-%m-%d')).execute()
             today_records = len(response_attendance.data) if response_attendance.data else 0
-        except Exception as e:
-            st.error(f"Supabase Error (Today's Attendance metric): {e}")
+        except:
+            today_records = 0
     st.markdown(f"""
     <div class="metric-card">
         <h3>{today_records}</h3>
@@ -1443,15 +1442,12 @@ with col2:
 
 with col3:
     registered_faces = 0
-    if supabase is None:
-        st.error("Supabase client is not initialized for Registered Students metric.")
-    else:
+    if is_online and supabase is not None:
         try:
-            # Fetch all registered students
             response_students = supabase.table("students_data").select("*").execute()
-            registered_faces = len(response_students.data) if response_students.data else 0  # Fix: Use len() to count records
-        except Exception as e:
-            st.error(f"Supabase Error (Registered Students metric): {e}")
+            registered_faces = len(response_students.data) if response_students.data else 0
+        except:
+            registered_faces = 0
     st.markdown(f"""
     <div class="metric-card">
         <h3>✅ {registered_faces}</h3>
@@ -1460,8 +1456,15 @@ with col3:
     """, unsafe_allow_html=True)
 
 with col4:
-    response_rewards = supabase.table("rewards").select("*").eq("Badge", "Gold").execute()
-    gold_badges = len(response_rewards.data) if response_rewards.data else 0
+    if is_online:
+        try:
+            response_rewards = supabase.table("rewards").select("*").eq("Badge", "Gold").execute()
+            gold_badges = len(response_rewards.data) if response_rewards.data else 0
+        except:
+            gold_badges = 0
+    else:
+        gold_badges = 0
+    
     blockchain_status = "🔗 Blockchain Active" if BLOCKCHAIN_ENABLED else "⚠️ Offline"
     st.markdown(f"""
     <div class="metric-card">
@@ -1505,10 +1508,14 @@ if st.sidebar.button(" AI Attendance Insights", key="ai_insights"):
 
     # Get all student names for multiselect
     all_student_names = []
-    response_students = supabase.table("students_data").select("Name").execute()
-    if response_students.data:
-        students_df = pd.DataFrame(response_students.data)
-        all_student_names = students_df['Name'].tolist()
+    if is_online:
+        try:
+            response_students = supabase.table("students_data").select("Name").execute()
+            if response_students.data:
+                students_df = pd.DataFrame(response_students.data)
+                all_student_names = students_df['Name'].tolist()
+        except:
+            all_student_names = []
 
     selected_students = st.multiselect(
         "Select students to compare in the graph (leave empty for all):",
@@ -1603,19 +1610,38 @@ if st.session_state.session_active:
 
 st.sidebar.markdown("### 📊 View Data")
 if st.sidebar.button(" Show Attendance Records", key="show_attendance"):
-    response = supabase.table("Attendance").select("*").execute()
-    attendance_data = response.data
-    if attendance_data:
-        df = pd.DataFrame(attendance_data)
-        st.markdown("### Overall Attendance Records")
-        st.dataframe(df, use_container_width=True)
+    if is_online:
+        try:
+            response = supabase.table("Attendance").select("*").execute()
+            attendance_data = response.data
+            if attendance_data:
+                df = pd.DataFrame(attendance_data)
+                st.markdown("### Overall Attendance Records")
+                st.dataframe(df, use_container_width=True)
+            else:
+                st.warning("No attendance records found.")
+        except Exception as e:
+            st.error(f"Error fetching attendance data: {e}")
     else:
-        st.warning("No attendance records found.")
+        st.warning("🔴 Offline Mode - Cannot fetch online records")
+        if os.path.exists(OFFLINE_FILE):
+            try:
+                with open(OFFLINE_FILE, 'r') as f:
+                    offline_data = json.load(f)
+                if offline_data:
+                    df = pd.DataFrame(offline_data)
+                    st.markdown("### 📱 Offline Attendance Records")
+                    st.dataframe(df, use_container_width=True)
+                else:
+                    st.info("No offline records found.")
+            except:
+                st.error("Error reading offline records")
 
 if st.sidebar.button(" Show Attendance Percentage", key="show_percentage"):
-    attendance_summary = calculate_attendance_percentage()
-    if attendance_summary is not None and not attendance_summary.empty:
-        st.markdown("### 📊 Student Attendance Analysis")
+    if is_online:
+        attendance_summary = calculate_attendance_percentage()
+        if attendance_summary is not None and not attendance_summary.empty:
+            st.markdown("### 📊 Student Attendance Analysis")
         
         # Separate students by attendance percentage
         good_attendance = attendance_summary[attendance_summary["Percentage"] >= 75]
@@ -1644,6 +1670,8 @@ if st.sidebar.button(" Show Attendance Percentage", key="show_percentage"):
         # Display summary table
         st.markdown("####  Complete Summary")
         st.dataframe(attendance_summary, use_container_width=True)
+    else:
+        st.warning("🔴 Offline Mode - Attendance percentage requires online connection")
 
 # Sidebar Chatbot Toggle
 st.sidebar.markdown("### 👽 Chatbot")
@@ -1801,6 +1829,11 @@ if st.button("✅ Register Student", key="register_student"):
 # Enhanced Live Webcam Capture with Anti-Spoof Detection
 # -------------------------
 if st.session_state.get("webcam_active"):
+    # Check connection status
+    is_online = check_internet()
+    if not is_online:
+        st.warning("🔴 **OFFLINE MODE** - Attendance will be saved locally and synced when online")
+    
     st.markdown("""
     <div class="info-card">
         <h3> Live Face Recognition with Anti-Spoof Detection</h3>
@@ -1905,7 +1938,7 @@ if st.session_state.get("webcam_active"):
                         recognition_placeholder.markdown(f"✅ **Verified: {current_name}**")
                         
                         result = mark_attendance_and_reward(current_name, frame)
-                        if result[0] is not None:
+                        if result[0] is not None or not check_internet():
                             st.session_state["last_recognized"] = current_name
                             st.session_state["last_marked_time"] = time.time()
                             liveness_placeholder.markdown("✅ **Attendance Marked!**")
