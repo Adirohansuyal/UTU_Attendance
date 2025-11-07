@@ -343,7 +343,7 @@ st.markdown("""
 
 # AI Insights Configuration
 
-GROQ_API_KEY = "My-API-Key"
+GROQ_API_KEY = "yapk"
 GROQ_MODEL = "llama-3.3-70b-versatile"
 
 
@@ -1462,7 +1462,7 @@ with col3:
 with col4:
     response_rewards = supabase.table("rewards").select("*").eq("Badge", "Gold").execute()
     gold_badges = len(response_rewards.data) if response_rewards.data else 0
-    blockchain_status = "🔗 Active" if BLOCKCHAIN_ENABLED else "⚠️ Offline"
+    blockchain_status = "🔗 Blockchain Active" if BLOCKCHAIN_ENABLED else "⚠️ Offline"
     st.markdown(f"""
     <div class="metric-card">
         <h3>🏆 {gold_badges}</h3>
